@@ -29,15 +29,15 @@ interface MessageBubbleProps {
 function StatusIcon({ status }: { status: Message["status"] }) {
   switch (status) {
     case "sending":
-      return <Clock className="h-3 w-3 text-slate-400" />;
+      return <Clock className="h-3 w-3 text-muted-foreground" />;
     case "sent":
-      return <Check className="h-3 w-3 text-slate-400" />;
+      return <Check className="h-3 w-3 text-muted-foreground" />;
     case "delivered":
-      return <CheckCheck className="h-3 w-3 text-slate-400" />;
+      return <CheckCheck className="h-3 w-3 text-muted-foreground" />;
     case "read":
-      return <CheckCheck className="h-3 w-3 text-blue-400" />;
+      return <CheckCheck className="h-3 w-3 text-brand-cyan" />;
     case "failed":
-      return <XCircle className="h-3 w-3 text-red-400" />;
+      return <XCircle className="h-3 w-3 text-destructive" />;
     default:
       return null;
   }
@@ -45,8 +45,8 @@ function StatusIcon({ status }: { status: Message["status"] }) {
 
 function MediaUnavailable({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-slate-700/40 px-3 py-2 text-xs text-slate-300">
-      <ImageOff className="h-4 w-4 shrink-0 text-slate-500" />
+    <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <ImageOff className="h-4 w-4 shrink-0 text-muted-foreground/60" />
       <span>{label} unavailable</span>
     </div>
   );
@@ -91,16 +91,16 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
 
   if (error) {
     return (
-      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-slate-700">
-        <ImageOff className="h-8 w-8 text-slate-500" />
+      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
+        <ImageOff className="h-8 w-8 text-muted-foreground" />
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-slate-700">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-cyan border-t-transparent" />
       </div>
     );
   }
@@ -180,9 +180,9 @@ function MessageContent({ message }: { message: Message }) {
           href={message.media_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-lg bg-slate-700/50 px-3 py-2 text-sm hover:bg-slate-700"
+          className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm hover:bg-accent text-foreground transition-colors"
         >
-          <FileText className="h-5 w-5 shrink-0 text-slate-400" />
+          <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
           <span className="truncate">
             {message.content_text || "Document"}
           </span>
@@ -192,7 +192,7 @@ function MessageContent({ message }: { message: Message }) {
     case "template":
       return (
         <div>
-          <span className="mb-1 inline-flex items-center gap-1 rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-medium text-violet-400">
+          <span className="mb-1 inline-flex items-center gap-1 rounded bg-brand-cyan/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand-cyan">
             <LayoutTemplate className="h-3 w-3" />
             Template
           </span>
@@ -207,7 +207,7 @@ function MessageContent({ message }: { message: Message }) {
     case "location":
       return (
         <div className="flex items-center gap-2 text-sm">
-          <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
+          <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span>{message.content_text || "Location shared"}</span>
         </div>
       );
@@ -242,10 +242,10 @@ export function MessageBubble({
     >
       <div
         className={cn(
-          "relative rounded-2xl px-3 py-2",
+          "relative rounded-2xl px-3 py-2 shadow-sm border border-transparent",
           isAgent
-            ? "rounded-br-md bg-violet-600 text-white"
-            : "rounded-bl-md bg-slate-800 text-slate-100",
+            ? "rounded-br-md bg-brand-gradient text-white"
+            : "rounded-bl-md bg-[#F5F7F8] text-slate-800 dark:bg-card dark:text-foreground dark:border-border/30",
         )}
       >
         {reply && (
@@ -258,7 +258,7 @@ export function MessageBubble({
             isAgent ? "justify-end" : "justify-start",
           )}
         >
-          <span className="text-[10px] text-white/60">{time}</span>
+          <span className={cn("text-[10px]", isAgent ? "text-white/60" : "text-slate-500 dark:text-muted-foreground")}>{time}</span>
           {isAgent && <StatusIcon status={message.status} />}
         </div>
       </div>

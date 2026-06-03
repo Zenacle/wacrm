@@ -16,10 +16,10 @@ interface Action {
 }
 
 const ACTIONS: Action[] = [
-  { label: 'New Contact', href: '/contacts', icon: UserPlus, tint: 'text-violet-400' },
-  { label: 'New Deal', href: '/pipelines', icon: Briefcase, tint: 'text-blue-400' },
-  { label: 'New Broadcast', href: '/broadcasts/new', icon: Radio, tint: 'text-amber-400' },
-  { label: 'New Automation', href: '/automations/new', icon: Zap, tint: 'text-violet-400' },
+  { label: 'New Contact', href: '/contacts', icon: UserPlus, tint: 'text-brand-cyan' },
+  { label: 'New Deal', href: '/pipelines', icon: Briefcase, tint: 'text-brand-cyan' },
+  { label: 'New Broadcast', href: '/broadcasts/new', icon: Radio, tint: 'text-brand-teal dark:text-brand-cyan' },
+  { label: 'New Automation', href: '/automations/new', icon: Zap, tint: 'text-brand-cyan' },
 ]
 
 export function QuickActions() {
@@ -31,12 +31,12 @@ export function QuickActions() {
           <Link
             key={a.href}
             href={a.href}
-            className="group flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 transition-colors hover:border-slate-700 hover:bg-slate-800/60"
+            className="group flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 transition-all hover:bg-accent hover:border-accent shadow-sm hover:shadow-md"
           >
-            <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800 ${a.tint}`}>
+            <div className={`flex h-9 w-9 items-center justify-center rounded-xl bg-accent ${a.tint}`}>
               <Icon className="h-4 w-4" />
             </div>
-            <span className="text-sm font-medium text-white">{a.label}</span>
+            <span className="text-sm font-semibold text-foreground">{a.label}</span>
           </Link>
         )
       })}

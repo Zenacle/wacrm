@@ -14,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { MessageSquare } from "lucide-react";
+import { ZenacleLogo } from "@/components/ui/zenacle-logo";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -44,14 +44,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
-      <Card className="w-full max-w-md border-slate-800 bg-slate-900">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-md">
         <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-violet-500/10">
-            <MessageSquare className="h-6 w-6 text-violet-500" />
+          <div className="mb-4">
+            <ZenacleLogo variant="login" />
           </div>
-          <CardTitle className="text-xl text-white">Welcome back</CardTitle>
-          <CardDescription className="text-slate-400">
+          <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+          <CardDescription>
             Sign in to your account
           </CardDescription>
         </CardHeader>
@@ -64,7 +64,7 @@ export default function LoginPage() {
             )}
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="email" className="text-slate-300">
+              <Label htmlFor="email">
                 Email
               </Label>
               <Input
@@ -74,18 +74,18 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="border-slate-700 bg-slate-800 text-white placeholder:text-slate-500 focus-visible:border-violet-500 focus-visible:ring-violet-500/20"
+                className="bg-transparent text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-slate-300">
+                <Label htmlFor="password">
                   Password
                 </Label>
                 <Link
                   href="/forgot-password"
-                  className="text-sm text-violet-500 hover:text-violet-400"
+                  className="text-sm text-primary hover:underline"
                 >
                   Forgot password?
                 </Link>
@@ -97,24 +97,24 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="border-slate-700 bg-slate-800 text-white placeholder:text-slate-500 focus-visible:border-violet-500 focus-visible:ring-violet-500/20"
+                className="bg-transparent text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
             <Button
               type="submit"
               disabled={loading}
-              className="mt-2 h-10 w-full bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50"
+              className="mt-2 h-10 w-full bg-brand-gradient text-white hover:opacity-90 disabled:opacity-50"
             >
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-slate-400">
+          <p className="mt-6 text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
             <Link
               href="/signup"
-              className="text-violet-500 hover:text-violet-400"
+              className="text-primary hover:underline"
             >
               Create account
             </Link>

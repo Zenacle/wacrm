@@ -40,16 +40,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full bg-slate-950 text-white font-sans">
+      <body className="min-h-full bg-background text-foreground font-sans">
         {children}
         <Toaster
-          theme="dark"
+          theme="system"
           position="top-right"
           toastOptions={{
             style: {
-              background: "rgb(30 41 59)",
-              border: "1px solid rgb(51 65 85)",
-              color: "white",
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--card-foreground)",
             },
           }}
         />
