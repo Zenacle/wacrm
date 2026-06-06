@@ -120,6 +120,7 @@ export interface SendTemplateMessageArgs {
   templateName: string
   language?: string
   params?: string[]
+  headerImageUrl?: string
   /** Meta's message_id of the message being replied to. */
   contextMessageId?: string
 }
@@ -138,6 +139,7 @@ export async function sendTemplateMessage(
     templateName,
     language = 'en',
     params,
+    headerImageUrl,
     contextMessageId,
   } = args
   
