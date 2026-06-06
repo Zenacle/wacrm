@@ -153,9 +153,9 @@ export async function POST(request: Request) {
           const result = await sendTemplateMessage({
             phoneNumberId: config.phone_number_id,
             accessToken,
-            to: variant,
+            to: variant.startsWith('+') ? variant : `+${variant}`,
             templateName: template_name,
-            language: template_language || 'en_US',
+            language: template_language || 'en',
             params: recipient.params ?? [],
           })
           sentMessageId = result.messageId
