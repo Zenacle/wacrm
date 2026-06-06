@@ -285,30 +285,23 @@ export function ContactDetailView({
     setSavingCustom(true);
 
     try {
-      // Delete existing values and re-insert
-      await supabase
-        .from('contact_custom_values')
-        .delete()
-        .eq('contact_id', contactId);
-
-      const rows = Object.entries(customValues)
-        .filter(([, val]) => val.trim())
-        .map(([fieldId, val]) => ({
-          contact_id: contactId,
-          custom_field_id: fieldId,
-          value: val.trim(),
-        }));
+      const rows = customFields.map((field) => ({
+        contact_id: contactId,
+        custom_field_id: field.id,
+        value: customValues[field.id]?.trim() || null,
+      }));
 
       if (rows.length > 0) {
         const { error } = await supabase
           .from('contact_custom_values')
-          .insert(rows);
+          .upsert(rows, { onConflict: 'contact_id,custom_field_id' });
         if (error) throw error;
       }
 
       toast.success('Custom fields saved');
-    } catch {
-      toast.error('Failed to save custom fields');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save custom fields';
+      toast.error(msg);
     }
     setSavingCustom(false);
   }

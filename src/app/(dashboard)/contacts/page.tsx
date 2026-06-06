@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -40,6 +41,8 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -59,6 +62,19 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+
+   // Bulk actions state
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [showSelectedOnly, setShowSelectedOnly] = useState(false);
+  const [drawerSyncKey, setDrawerSyncKey] = useState(0);
+
+  const selectedIdsRef = useRef(selectedIds);
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -100,6 +116,17 @@ export default function ContactsPage() {
       query = query.or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`);
     }
 
+    if (showSelectedOnly) {
+      const activeIds = selectedIdsRef.current;
+      if (activeIds.length === 0) {
+        setContacts([]);
+        setTotalCount(0);
+        setLoading(false);
+        return;
+      }
+      query = query.in('id', activeIds);
+    }
+
     const { data, count, error } = await query;
 
     if (error) {
@@ -138,7 +165,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, tagsMap]);
+  }, [supabase, page, search, tagsMap, showSelectedOnly]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -153,6 +180,21 @@ export default function ContactsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
+
+  // Refetch only when selectedIds changes AND showSelectedOnly is true
+  useEffect(() => {
+    if (showSelectedOnly) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchContacts();
+    }
+  }, [selectedIds, showSelectedOnly, fetchContacts]);
+
+  // Auto-disable showSelectedOnly if selection becomes empty
+  useEffect(() => {
+    if (selectedIds.length === 0 && showSelectedOnly) {
+      setShowSelectedOnly(false);
+    }
+  }, [selectedIds, showSelectedOnly]);
 
   function openAddForm() {
     setEditContact(null);
@@ -193,6 +235,7 @@ export default function ContactsPage() {
       toast.error('Failed to delete contact');
     } else {
       toast.success('Contact deleted');
+      setSelectedIds((prev) => prev.filter((id) => id !== deleteTarget.id));
       fetchContacts();
     }
 
@@ -200,6 +243,119 @@ export default function ContactsPage() {
     setDeleteConfirmOpen(false);
     setDeleteTarget(null);
   }
+
+  // Bulk action handlers
+  async function handleBulkAddTag(tagId: string) {
+    if (selectedIds.length === 0) return;
+    setBulkActionLoading(true);
+    try {
+      const rows = selectedIds.map((cid) => ({
+        contact_id: cid,
+        tag_id: tagId,
+      }));
+
+      const chunkSize = 100;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from('contact_tags')
+          .upsert(chunk, { onConflict: 'contact_id,tag_id' });
+        if (error) throw error;
+      }
+
+      toast.success(`Tag added to ${selectedIds.length} contact${selectedIds.length !== 1 ? 's' : ''}`);
+      fetchContacts();
+      setDrawerSyncKey((prev) => prev + 1);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to add tags';
+      toast.error(msg);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
+
+  async function handleBulkRemoveTag(tagId: string) {
+    if (selectedIds.length === 0) return;
+    setBulkActionLoading(true);
+    try {
+      const chunkSize = 100;
+      for (let i = 0; i < selectedIds.length; i += chunkSize) {
+        const chunk = selectedIds.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from('contact_tags')
+          .delete()
+          .in('contact_id', chunk)
+          .eq('tag_id', tagId);
+        if (error) throw error;
+      }
+
+      toast.success(`Tag removed from ${selectedIds.length} contact${selectedIds.length !== 1 ? 's' : ''}`);
+      fetchContacts();
+      setDrawerSyncKey((prev) => prev + 1);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to remove tags';
+      toast.error(msg);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.length === 0) return;
+    setDeleting(true);
+    try {
+      const chunkSize = 100;
+      for (let i = 0; i < selectedIds.length; i += chunkSize) {
+        const chunk = selectedIds.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from('contacts')
+          .delete()
+          .in('id', chunk);
+        if (error) throw error;
+      }
+
+      toast.success(`Deleted ${selectedIds.length} contact${selectedIds.length !== 1 ? 's' : ''}`);
+      setSelectedIds([]);
+      fetchContacts();
+      setDrawerSyncKey((prev) => prev + 1);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete contacts';
+      toast.error(msg);
+    } finally {
+      setDeleting(false);
+      setBulkDeleteConfirmOpen(false);
+    }
+  }
+
+  async function handleSelectAllMatches() {
+    setSelectingAll(true);
+    try {
+      let query = supabase.from('contacts').select('id');
+      if (search.trim()) {
+        const term = `%${search.trim()}%`;
+        query = query.or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      if (data) {
+        setSelectedIds(data.map((c) => c.id));
+        toast.success(`Selected all ${data.length} contacts`);
+      }
+    } catch (err: unknown) {
+      toast.error('Failed to select all contacts');
+    } finally {
+      setSelectingAll(false);
+    }
+  }
+
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    setPage(0);
+  };
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const hasNext = page < totalPages - 1;
@@ -233,20 +389,146 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            // Reset pagination when the query changes — the result
-            // set shrinks/grows, page N may no longer be valid.
-            setPage(0);
-          }}
-          placeholder="Search by name, phone, or email..."
-          className="pl-9 bg-muted/30 border-border text-foreground placeholder:text-muted-foreground focus:border-brand-cyan/50 focus:ring-1 focus:ring-brand-cyan/50 rounded-xl"
-        />
+      {/* Search & Bulk Actions */}
+      <div className="flex flex-row flex-wrap items-center justify-between gap-4">
+        <div className="relative max-w-sm w-full md:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Search by name, phone, or email..."
+            className="pl-9 bg-muted/30 border-border text-foreground placeholder:text-muted-foreground focus:border-brand-cyan/50 focus:ring-1 focus:ring-brand-cyan/50 rounded-xl"
+          />
+        </div>
+
+        {/* Bulk Actions Bar */}
+        {selectedIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 h-8 px-2.5 rounded-xl border border-brand-teal/20 dark:border-brand-cyan/20 bg-brand-teal/5 dark:bg-brand-cyan/5 text-foreground animate-in fade-in slide-in-from-right-2 duration-200 ml-auto">
+            <span className="text-xs font-semibold text-brand-teal dark:text-brand-cyan whitespace-nowrap pr-2 border-r border-border mr-0.5">
+              {selectedIds.length} selected
+            </span>
+            {selectedIds.length < totalCount && contacts.length > 0 && contacts.every((c) => selectedIds.includes(c.id)) && (
+              <button
+                onClick={handleSelectAllMatches}
+                disabled={selectingAll}
+                className="text-xs text-brand-teal dark:text-brand-cyan hover:underline font-semibold cursor-pointer mr-1.5 whitespace-nowrap"
+              >
+                {selectingAll ? 'Selecting...' : `Select all ${totalCount} contacts`}
+              </button>
+            )}
+
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                setShowSelectedOnly(!showSelectedOnly);
+                setPage(0);
+              }}
+              className={cn(
+                "border-border hover:bg-accent hover:text-foreground transition-all duration-200",
+                showSelectedOnly 
+                  ? "bg-brand-teal/20 text-brand-teal dark:bg-brand-cyan/20 dark:text-brand-cyan border-brand-teal/30 dark:border-brand-cyan/30 font-semibold" 
+                  : "text-muted-foreground"
+              )}
+            >
+              {showSelectedOnly ? "Show All" : "Show Selected"}
+            </Button>
+            
+            {/* Add Tag */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="border-border hover:bg-accent text-muted-foreground hover:text-foreground"
+                    disabled={bulkActionLoading}
+                  />
+                }
+              >
+                <Plus className="size-3" />
+                Add Tag
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="bg-card border-border shadow-lg rounded-xl text-card-foreground max-h-60 overflow-y-auto"
+              >
+                {Object.values(tagsMap).length === 0 ? (
+                  <div className="p-2 text-xs text-muted-foreground">No tags available</div>
+                ) : (
+                  Object.values(tagsMap).map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => handleBulkAddTag(tag.id)}
+                      className="focus:bg-accent focus:text-accent-foreground cursor-pointer flex items-center gap-2"
+                    >
+                      <span className="size-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                      {tag.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Remove Tag */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="border-border hover:bg-accent text-muted-foreground hover:text-foreground"
+                    disabled={bulkActionLoading}
+                  />
+                }
+              >
+                <Trash2 className="size-3" />
+                Remove Tag
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="bg-card border-border shadow-lg rounded-xl text-card-foreground max-h-60 overflow-y-auto"
+              >
+                {Object.values(tagsMap).length === 0 ? (
+                  <div className="p-2 text-xs text-muted-foreground">No tags available</div>
+                ) : (
+                  Object.values(tagsMap).map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => handleBulkRemoveTag(tag.id)}
+                      className="focus:bg-accent focus:text-accent-foreground cursor-pointer flex items-center gap-2"
+                    >
+                      <span className="size-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                      {tag.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Delete button */}
+            <Button
+              variant="destructive"
+              size="xs"
+              onClick={() => setBulkDeleteConfirmOpen(true)}
+              disabled={bulkActionLoading}
+            >
+              <Trash2 className="size-3" />
+              Delete
+            </Button>
+
+            {/* Clear Selection */}
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => setSelectedIds([])}
+              className="text-muted-foreground hover:text-foreground"
+              disabled={bulkActionLoading}
+            >
+              Clear Selection
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -254,6 +536,29 @@ export default function ContactsPage() {
         <Table>
           <TableHeader className="sticky top-0 bg-card z-10 shadow-[inset_0_-1px_0_0_var(--border)]">
             <TableRow className="border-border hover:bg-transparent">
+              <TableHead className="w-12 bg-card">
+                <div className="flex items-center justify-center h-full">
+                  <input
+                    type="checkbox"
+                    checked={contacts.length > 0 && contacts.every((c) => selectedIds.includes(c.id))}
+                    onChange={(e) => {
+                      const pageIds = contacts.map((c) => c.id);
+                      if (e.target.checked) {
+                        setSelectedIds((prev) => {
+                          const next = [...prev];
+                          pageIds.forEach((id) => {
+                            if (!next.includes(id)) next.push(id);
+                          });
+                          return next;
+                        });
+                      } else {
+                        setSelectedIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+                      }
+                    }}
+                    className="size-4 rounded border-border bg-muted/30 text-brand-teal dark:text-brand-cyan focus:ring-brand-teal/50 dark:focus:ring-brand-cyan/50 cursor-pointer accent-brand-teal dark:accent-brand-cyan"
+                  />
+                </div>
+              </TableHead>
               <TableHead className="text-brand-teal dark:text-brand-cyan bg-card font-semibold">Name</TableHead>
               <TableHead className="text-brand-teal dark:text-brand-cyan bg-card font-semibold">Phone</TableHead>
               <TableHead className="text-brand-teal dark:text-brand-cyan bg-card font-semibold hidden md:table-cell">Email</TableHead>
@@ -266,7 +571,7 @@ export default function ContactsPage() {
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-brand-cyan" />
                     <p className="text-sm text-muted-foreground">Loading contacts...</p>
@@ -275,7 +580,7 @@ export default function ContactsPage() {
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-muted-foreground/60" />
                     <p className="text-sm text-muted-foreground">
@@ -302,6 +607,22 @@ export default function ContactsPage() {
                   className="border-border hover:bg-accent/50 cursor-pointer transition-colors"
                   onClick={() => openDetail(contact.id)}
                 >
+                  <TableCell className="w-12" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(contact.id)}
+                        onChange={(e) => {
+                          setSelectedIds((prev) =>
+                            prev.includes(contact.id)
+                              ? prev.filter((id) => id !== contact.id)
+                              : [...prev, contact.id]
+                          );
+                        }}
+                        className="size-4 rounded border-border bg-muted/30 text-brand-teal dark:text-brand-cyan focus:ring-brand-teal/50 dark:focus:ring-brand-cyan/50 cursor-pointer accent-brand-teal dark:accent-brand-cyan"
+                      />
+                    </div>
+                  </TableCell>
                   <TableCell className="text-foreground font-semibold">
                     {contact.name || <span className="text-muted-foreground/50 italic">Unnamed</span>}
                   </TableCell>
@@ -408,7 +729,7 @@ export default function ContactsPage() {
               variant="outline"
               size="icon-sm"
               disabled={!hasPrev}
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => handlePageChange(page - 1)}
               className="border-border text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 rounded-lg"
             >
               <ChevronLeft className="size-4" />
@@ -420,7 +741,7 @@ export default function ContactsPage() {
               variant="outline"
               size="icon-sm"
               disabled={!hasNext}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => handlePageChange(page + 1)}
               className="border-border text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 rounded-lg"
             >
               <ChevronRight className="size-4" />
@@ -438,22 +759,30 @@ export default function ContactsPage() {
         onSaved={() => {
           fetchContacts();
           fetchTags();
+          setSelectedIds([]);
         }}
       />
 
       {/* Contact Detail Sheet */}
       <ContactDetailView
+        key={detailContactId ? `${detailContactId}-${drawerSyncKey}` : 'empty'}
         open={detailOpen}
         onOpenChange={setDetailOpen}
         contactId={detailContactId}
-        onUpdated={fetchContacts}
+        onUpdated={() => {
+          fetchContacts();
+          setSelectedIds([]);
+        }}
       />
 
       {/* Import Modal */}
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImported={fetchContacts}
+        onImported={() => {
+          fetchContacts();
+          setSelectedIds([]);
+        }}
       />
 
       {/* Delete Confirmation */}
@@ -488,6 +817,41 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Delete Confirmation */}
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent className="bg-card border-border text-foreground sm:max-w-sm rounded-2xl shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Delete Multiple Contacts</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Are you sure you want to delete{' '}
+              <span className="text-foreground font-semibold">
+                {selectedIds.length} selected contact{selectedIds.length !== 1 ? 's' : ''}
+              </span>
+              ? This action cannot be undone and will delete all associated conversations.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="bg-card border-t border-border pt-4 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setBulkDeleteConfirmOpen(false)}
+              className="border-border text-muted-foreground hover:bg-accent"
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={deleting}
+            >
+              {deleting && <Loader2 className="size-4 animate-spin" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

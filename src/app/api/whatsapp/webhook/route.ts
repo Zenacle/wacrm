@@ -536,6 +536,11 @@ async function processMessage(
   })
 
   if (msgError) {
+    // Gracefully ignore duplicate webhook deliveries (unique constraint violation)
+    if (msgError.code === '23505') {
+      console.warn('[webhook] Duplicate message ignored (message_id already exists):', message.id)
+      return
+    }
     console.error('Error inserting message:', msgError)
     return
   }
@@ -727,15 +732,36 @@ async function findOrCreateContact(
   phone: string,
   name: string
 ): Promise<ContactOutcome | null> {
-  // Look up existing contacts for this user
-  const { data: contacts, error: contactsError } = await supabaseAdmin()
+  const normalized = normalizePhone(phone)
+
+  // 1. Try exact match first
+  let { data: contacts, error: contactsError } = await supabaseAdmin()
     .from('contacts')
     .select('*')
     .eq('user_id', userId)
+    .eq('phone', normalized)
 
   if (contactsError) {
-    console.error('Error fetching contacts:', contactsError)
+    console.error('Error fetching contacts exact match:', contactsError)
     return null
+  }
+
+  // 2. Suffix fallback (flexible match based on last 8 digits)
+  if (!contacts || contacts.length === 0) {
+    const last8 = normalized.slice(-8)
+    if (last8.length >= 8) {
+      const { data, error } = await supabaseAdmin()
+        .from('contacts')
+        .select('*')
+        .eq('user_id', userId)
+        .like('phone', `%${last8}`)
+      
+      if (error) {
+        console.error('Error fetching contacts flexible match:', error)
+        return null
+      }
+      contacts = data
+    }
   }
 
   // Use phonesMatch for flexible matching
@@ -778,7 +804,7 @@ async function findOrCreateConversation(userId: string, contactId: string) {
     .select('*')
     .eq('user_id', userId)
     .eq('contact_id', contactId)
-    .single()
+    .maybeSingle()
 
   if (!findError && existing) {
     return existing
@@ -795,6 +821,18 @@ async function findOrCreateConversation(userId: string, contactId: string) {
     .single()
 
   if (createError) {
+    // If a concurrent webhook created the conversation in the interim, query and return it.
+    if (createError.code === '23505') {
+      const { data: retried, error: retryError } = await supabaseAdmin()
+        .from('conversations')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('contact_id', contactId)
+        .maybeSingle()
+      if (!retryError && retried) {
+        return retried
+      }
+    }
     console.error('Error creating conversation:', createError)
     return null
   }
