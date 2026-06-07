@@ -160,10 +160,6 @@ export async function sendTemplateMessage(
   ]
 }
 
-  if (components.length > 0) {
-    template.components = components
-  }
-
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
