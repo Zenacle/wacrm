@@ -143,7 +143,7 @@ export async function sendTemplateMessage(
     contextMessageId,
   } = args
   
-  console.log('TEMPLATE PAYLOAD:', JSON.stringify({ to, templateName, language, params }))
+  console.log('TEMPLATE PAYLOAD:', JSON.stringify({ to, templateName, language, params, headerImageUrl }))
   
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
   
