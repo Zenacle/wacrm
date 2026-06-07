@@ -150,14 +150,6 @@ export async function sendTemplateMessage(
     language: { code: language },
   }
 
-  const components: unknown[] = []
-
-  if (headerImageUrl) {
-    components.push({
-      type: 'header',
-      parameters: [{ type: 'image', image: { link: headerImageUrl } }]
-    })
-  }
 
   if (params && params.length > 0) {
     components.push({
