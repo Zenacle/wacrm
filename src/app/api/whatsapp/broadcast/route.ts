@@ -157,7 +157,6 @@ export async function POST(request: Request) {
             templateName: template_name,
             language: template_language || 'en',
             params: recipient.params ?? [],
-            headerImageUrl: 'https://hizvjivgehoojjxrphko.supabase.co/storage/v1/object/public/Images/webinar%20june%2014%20(1).png',
           })
           sentMessageId = result.messageId
           lastError = null
