@@ -151,12 +151,14 @@ export async function sendTemplateMessage(
   }
 
 
-  if (params && params.length > 0) {
-    components.push({
+ if (params && params.length > 0) {
+  template.components = [
+    {
       type: 'body',
       parameters: params.map((p) => ({ type: 'text', text: String(p) })),
-    })
-  }
+    },
+  ]
+}
 
   if (components.length > 0) {
     template.components = components
