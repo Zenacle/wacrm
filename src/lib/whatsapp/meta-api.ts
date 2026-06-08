@@ -155,7 +155,7 @@ export async function sendTemplateMessage(
   template.components = [
     {
       type: 'body',
-      parameters: params.map((p) => ({ type: 'text', text: String(p) })),
+      parameters: params.map((p) => ({ type: 'text', text: String(p), parameter_name: 'customer_name' })),   
     },
   ]
 }
