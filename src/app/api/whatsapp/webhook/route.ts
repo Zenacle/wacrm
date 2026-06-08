@@ -34,6 +34,11 @@ interface WhatsAppMessage {
   reaction?: { message_id: string; emoji: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  interactive?: {
+    type: string
+    button_reply?: { id: string; title: string }
+    list_reply?: { id: string; title: string }
+  }
 }
 
 interface WhatsAppWebhookEntry {
@@ -707,6 +712,16 @@ async function parseMessageContent(
         mediaUrl: null,
         mediaType: null,
       }
+    case 'interactive': {
+      const buttonTitle = message.interactive?.button_reply?.title
+        || message.interactive?.list_reply?.title
+        || null
+      return {
+    contentText: buttonTitle,
+    mediaUrl: null,
+    mediaType: null,
+  }
+}
 
     default:
       return {
