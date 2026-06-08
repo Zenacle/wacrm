@@ -34,11 +34,13 @@ interface WhatsAppMessage {
   reaction?: { message_id: string; emoji: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
-  interactive?: {
+ interactive?: {
     type: string
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string }
   }
+  // Legacy quick-reply button tap — Meta sends type="button" for older templates
+  button?: { text: string; payload: string }
 }
 
 interface WhatsAppWebhookEntry {
@@ -514,8 +516,10 @@ async function processMessage(
   const contentType = ALLOWED_CONTENT_TYPES.has(message.type)
     ? message.type
     : message.type === 'sticker'
-      ? 'image'   // stickers are images
-      : 'text'    // reaction, unknown → text fallback
+      ? 'image'
+      : (message.type === 'interactive' || message.type === 'button')
+        ? 'text'   // button reply label is plain text
+        : 'text'   // unknown fallback
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
@@ -722,7 +726,14 @@ async function parseMessageContent(
     mediaType: null,
   }
 }
-
+     case 'button': {
+      // Legacy format: contact tapped a quick-reply on an older template
+      return {
+        contentText: message.button?.text || null,
+        mediaUrl: null,
+        mediaType: null,
+      }
+    }
     default:
       return {
         contentText: `[Unsupported message type: ${message.type}]`,
