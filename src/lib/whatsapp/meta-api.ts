@@ -151,14 +151,32 @@ export async function sendTemplateMessage(
   }
 
 
- if (params && params.length > 0) {
-  template.components = [
+const HEADER_IMAGE_URL = 'https://hizvjivgehoojjxrphko.supabase.co/storage/v1/object/public/Images/webinar%20june%2014%20(1).png'
+
+  const components: unknown[] = [
     {
-      type: 'body',
-      parameters: params.map((p) => ({ type: 'text', text: String(p), parameter_name: 'customer_name' })),   
+      type: 'header',
+      parameters: [
+        {
+          type: 'image',
+          image: { link: HEADER_IMAGE_URL },
+        },
+      ],
     },
   ]
-}
+
+  if (params && params.length > 0) {
+    components.push({
+      type: 'body',
+      parameters: params.map((p) => ({
+        type: 'text',
+        text: String(p),
+        parameter_name: 'customer_name',
+      })),
+    })
+  }
+
+  template.components = components
 
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
