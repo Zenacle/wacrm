@@ -336,6 +336,16 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
             })
             .map((k) => String(cfg.variables![k]))
         : []
+         if (params.length === 0 && args.contactId) {
+          const { data: contactRow } = await db
+          .from('contacts')
+          .select('name')
+          .eq('id', args.contactId)
+          .maybeSingle()
+        if (contactRow?.name) {
+          params = [contactRow.name]
+          }
+        }
       const { whatsapp_message_id } = await engineSendTemplate({
         userId: args.automation.user_id,
         conversationId,
