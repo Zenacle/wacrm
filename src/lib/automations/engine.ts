@@ -322,7 +322,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // we MUST emit params in strict numeric order. Lexicographic sort
       // of "1", "2", …, "10" yields "1", "10", "2", … which silently
       // scrambles every template with ≥10 variables.
-      const params = cfg.variables
+      let params = cfg.variables
         ? Object.keys(cfg.variables)
             .sort((a, b) => {
               const na = Number(a)
