@@ -9,6 +9,7 @@ import type {
   SendTemplateStepConfig,
   SendWebhookStepConfig,
   TagStepConfig,
+  TagTriggerConfig,
   UpdateContactFieldStepConfig,
   WaitStepConfig,
   CreateDealStepConfig,
@@ -363,6 +364,16 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           { contact_id: args.contactId, tag_id: cfg.tag_id },
           { onConflict: 'contact_id,tag_id', ignoreDuplicates: true },
         )
+      runAutomationsForTrigger({
+        userId: args.automation.user_id,
+        triggerType: 'tag_added',
+        contactId: args.contactId,
+        context: {
+          tag_id: cfg.tag_id,
+        },
+      }).catch((err) => {
+        console.error('[automations] runAutomationsForTrigger tag_added failed:', err)
+      })
       return `tag ${cfg.tag_id} added`
     }
 
@@ -482,6 +493,11 @@ async function resolveConversationId(args: ExecuteArgs): Promise<string> {
 }
 
 function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {
+  if (automation.trigger_type === 'tag_added') {
+    const cfg = automation.trigger_config as TagTriggerConfig
+    if (!cfg?.tag_id) return true
+    return cfg.tag_id === ctx?.tag_id
+  }
   if (automation.trigger_type !== 'keyword_match') return true
   const cfg = automation.trigger_config as KeywordMatchTriggerConfig
   if (!cfg?.keywords || cfg.keywords.length === 0) return false
