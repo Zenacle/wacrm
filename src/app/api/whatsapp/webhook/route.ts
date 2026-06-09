@@ -555,30 +555,6 @@ async function processMessage(
   }
 
   // Update conversation
-  const { error: convError } = await supabaseAdmin()
-    .from('conversations')
-    .update({
-      last_message_text: contentText || `[${message.type}]`,
-      last_message_at: new Date().toISOString(),
-      unread_count: (conversation.unread_count || 0) + 1,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', conversation.id)
-
-  if (convError) {
-    console.error('Error updating conversation:', convError)
-  }
-
-  // If this contact was a recent broadcast recipient, flag the reply
-  // so the broadcast's `replied_count` advances (via the aggregate
-  // trigger installed in migration 003).
-  await flagBroadcastReplyIfAny(userId, contactRecord.id)
-
-  // Fire any automations that react to this webhook event. All dispatches
-  // run here (not earlier) so the contact, conversation, and inbound
-  // message all exist before any step — including send_message — runs.
-  // Fire-and-forget: a slow or failing automation must not block the
-  // webhook's 200 OK response to Meta.
   const inboundText = contentText ?? message.text?.body ?? ''
   const automationTriggers: (
     | 'new_contact_created'
@@ -586,16 +562,25 @@ async function processMessage(
     | 'new_message_received'
     | 'keyword_match'
   )[] = ['new_message_received', 'keyword_match']
-  // new_contact_created fires only when the webhook just auto-created the
-  // contact row. first_inbound_message fires whenever this is the contact's
-  // first-ever customer-sent message — a superset that also catches
-  // manually-imported contacts sending for the first time. We dispatch both
-  // so users can pick whichever semantic they want; an automation that
-  // listens to only one trigger runs only when that trigger matches.
   if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
   if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
-  Promise.all(
-    automationTriggers.map((triggerType) =>
+
+  // ✅ Run conversation update, broadcast flag, AND automations all in parallel
+  await Promise.all([
+    supabaseAdmin()
+      .from('conversations')
+      .update({
+        last_message_text: contentText || `[${message.type}]`,
+        last_message_at: new Date().toISOString(),
+        unread_count: (conversation.unread_count || 0) + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', conversation.id)
+      .then(({ error }) => {
+        if (error) console.error('Error updating conversation:', error)
+      }),
+    flagBroadcastReplyIfAny(userId, contactRecord.id),
+    ...automationTriggers.map((triggerType) =>
       runAutomationsForTrigger({
         userId,
         triggerType,
@@ -605,8 +590,8 @@ async function processMessage(
           conversation_id: conversation.id,
         },
       }).catch((err) => console.error('[automations] dispatch failed:', err))
-    )
-  ).catch(() => {})
+    ),
+  ])
 }
 
 async function parseMessageContent(
