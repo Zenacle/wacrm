@@ -152,9 +152,12 @@ export async function sendTemplateMessage(
 
 
 const HEADER_IMAGE_URL = 'https://hizvjivgehoojjxrphko.supabase.co/storage/v1/object/public/Images/webinar%20june%2014%20(1).png'
+const TEMPLATES_WITH_HEADER = ['webinar_initial_message']
 
-  const components: unknown[] = [
-    {
+  const components: unknown[] = []
+
+  if (TEMPLATES_WITH_HEADER.includes(templateName)) {
+    components.push({
       type: 'header',
       parameters: [
         {
@@ -162,8 +165,8 @@ const HEADER_IMAGE_URL = 'https://hizvjivgehoojjxrphko.supabase.co/storage/v1/ob
           image: { link: HEADER_IMAGE_URL },
         },
       ],
-    },
-  ]
+    })
+  }
 
   if (params && params.length > 0) {
     components.push({
@@ -176,8 +179,9 @@ const HEADER_IMAGE_URL = 'https://hizvjivgehoojjxrphko.supabase.co/storage/v1/ob
     })
   }
 
-  template.components = components
-
+  if (components.length > 0) {
+    template.components = components
+  }
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
