@@ -576,7 +576,7 @@ async function processMessage(
         updated_at: new Date().toISOString(),
       })
       .eq('id', conversation.id)
-      .then(({ error }) => {
+      .then(({ error }: { error: Error | null }) => {
         if (error) console.error('Error updating conversation:', error)
       }),
     flagBroadcastReplyIfAny(userId, contactRecord.id),
