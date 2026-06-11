@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
+import { Broadcast, BroadcastRecipient, RecipientStatus, Tag } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -20,6 +20,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   ArrowLeft,
   Loader2,
   Users,
@@ -32,6 +40,7 @@ import {
   Download,
   ChevronDown,
   Trash2,
+  Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -156,6 +165,10 @@ export default function BroadcastDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [confirmTag, setConfirmTag] = useState<Tag | null>(null);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
   useEffect(() => {
     async function fetchData() {
       try {
@@ -178,6 +191,12 @@ export default function BroadcastDetailPage() {
 
         if (recsError) throw recsError;
         setRecipients(recs ?? []);
+
+        const { data: tagsData } = await supabase
+          .from('tags')
+          .select('*')
+          .order('name');
+        setTags(tagsData ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load broadcast');
       } finally {
@@ -195,6 +214,56 @@ export default function BroadcastDetailPage() {
         : recipients.filter((r) => r.status === statusFilter),
     [recipients, statusFilter],
   );
+
+  function handleSelectTag(tag: Tag) {
+    const validCount = filteredRecipients.filter(r => r.contact_id !== null).length;
+    if (validCount === 0) {
+      toast.error('No contacts available for tagging in the current filter.');
+      return;
+    }
+    setConfirmTag(tag);
+  }
+
+  async function handleBulkAddTag(tag: Tag) {
+    const contactIds = filteredRecipients
+      .map((r) => r.contact_id)
+      .filter((cid): cid is string => cid !== null);
+
+    if (contactIds.length === 0) {
+      toast.error('No contacts available for tagging in the current filter.');
+      setConfirmTag(null);
+      return;
+    }
+
+    setBulkActionLoading(true);
+    try {
+      const supabase = createClient();
+      const rows = contactIds.map((cid) => ({
+        contact_id: cid,
+        tag_id: tag.id,
+      }));
+
+      const chunkSize = 100;
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from('contact_tags')
+          .upsert(chunk, { onConflict: 'contact_id,tag_id' });
+        if (error) throw error;
+      }
+
+      const statusSuffix = statusFilter === 'all'
+        ? ''
+        : ` with status "${getRecipientStatus(statusFilter).label}"`;
+      toast.success(`Tag "${tag.name}" added to ${contactIds.length} contacts${statusSuffix}.`);
+      setConfirmTag(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to add tags';
+      toast.error(msg);
+    } finally {
+      setBulkActionLoading(false);
+    }
+  }
 
   function handleExport() {
     if (!broadcast) return;
@@ -444,6 +513,40 @@ export default function BroadcastDetailPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Add Tag Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                    disabled={filteredRecipients.length === 0}
+                  />
+                }
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add Tag
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="border-slate-700 bg-slate-900 max-h-60 overflow-y-auto">
+                {tags.length === 0 ? (
+                  <div className="p-2 text-xs text-slate-400">No tags available</div>
+                ) : (
+                  tags.map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => handleSelectTag(tag)}
+                      className="text-slate-300 focus:bg-slate-800 focus:text-white cursor-pointer flex items-center gap-2"
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                      {tag.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               variant="outline"
               size="sm"
@@ -523,6 +626,51 @@ export default function BroadcastDetailPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={confirmTag !== null} onOpenChange={(open) => !open && setConfirmTag(null)}>
+        <DialogContent className="bg-slate-900 border-slate-800 text-white sm:max-w-md rounded-2xl shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-white">Apply Tag</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Apply tag <span className="font-semibold text-white">"{confirmTag?.name}"</span> to{' '}
+              <span className="font-semibold text-white">
+                {filteredRecipients.filter((r) => r.contact_id !== null).length}
+              </span>{' '}
+              contacts
+              {statusFilter === 'all'
+                ? '?'
+                : ` with status "${getRecipientStatus(statusFilter).label}"?`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-xs text-slate-500 mt-2">
+            This action will add the selected tag to all contacts currently matching the active recipient filter.
+          </div>
+          <DialogFooter className="flex gap-2 sm:justify-end mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmTag(null)}
+              disabled={bulkActionLoading}
+              className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => confirmTag && handleBulkAddTag(confirmTag)}
+              disabled={bulkActionLoading}
+              className="bg-violet-600 hover:bg-violet-700 text-white min-w-[100px]"
+            >
+              {bulkActionLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Applying...
+                </>
+              ) : (
+                'Apply Tag'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
