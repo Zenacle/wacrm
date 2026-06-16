@@ -10,6 +10,7 @@ import type {
   DealStatus,
   PipelineStage,
   Profile,
+  Tag,
 } from "@/types";
 import {
   Sheet,
@@ -55,7 +56,7 @@ export function DealForm({
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
   const [currency, setCurrency] = useState("USD");
-  const [contactId, setContactId] = useState("");
+  const [contactIds, setContactIds] = useState<string[]>([]);
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
@@ -63,6 +64,9 @@ export function DealForm({
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [contactTags, setContactTags] = useState<{ contact_id: string; tag_id: string }[]>([]);
+  const [selectedTagId, setSelectedTagId] = useState("");
   const [linkedConversation, setLinkedConversation] =
     useState<Conversation | null>(null);
 
@@ -78,13 +82,14 @@ export function DealForm({
   useEffect(() => {
     if (!open) return;
     setConfirmDelete(false);
+    setSelectedTagId("");
     if (deal) {
       setTitle(deal.title);
       setValue(String(deal.value ?? ""));
       setCurrency(deal.currency || "USD");
       // contact_id is nullable when the contact has been deleted
-      // (migration 004: ON DELETE SET NULL). "" means "no selection".
-      setContactId(deal.contact_id ?? "");
+      // (migration 004: ON DELETE SET NULL).
+      setContactIds(deal.contact_id ? [deal.contact_id] : []);
       setStageId(deal.stage_id);
       setAssignedTo(deal.assigned_to ?? "");
       setExpectedCloseDate(deal.expected_close_date ?? "");
@@ -93,7 +98,7 @@ export function DealForm({
       setTitle("");
       setValue("");
       setCurrency("USD");
-      setContactId("");
+      setContactIds([]);
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
@@ -107,13 +112,17 @@ export function DealForm({
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [c, p] = await Promise.all([
+      const [c, p, t, ct] = await Promise.all([
         supabase.from("contacts").select("*").order("name"),
         supabase.from("profiles").select("*").order("full_name"),
+        supabase.from("tags").select("*").order("name"),
+        supabase.from("contact_tags").select("contact_id, tag_id"),
       ]);
       if (cancelled) return;
       setContacts((c.data ?? []) as Contact[]);
       setProfiles((p.data ?? []) as Profile[]);
+      setTags((t.data ?? []) as Tag[]);
+      setContactTags((ct.data ?? []) as { contact_id: string; tag_id: string }[]);
     })();
     return () => {
       cancelled = true;
@@ -124,17 +133,18 @@ export function DealForm({
   // Clearing on no-selection is sync with prop state; the populated
   // case runs setLinkedConversation inside the async fetch callback.
   useEffect(() => {
-    if (!open || !contactId) {
+    if (!open || contactIds.length !== 1) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLinkedConversation(null);
       return;
     }
+    const singleContactId = contactIds[0];
     let cancelled = false;
     (async () => {
       const { data } = await supabase
         .from("conversations")
         .select("*")
-        .eq("contact_id", contactId)
+        .eq("contact_id", singleContactId)
         .order("last_message_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -144,20 +154,19 @@ export function DealForm({
     return () => {
       cancelled = true;
     };
-  }, [open, contactId, supabase]);
+  }, [open, contactIds, supabase]);
 
   async function handleSave() {
-    if (!title.trim() || !contactId || !stageId) {
+    if (!title.trim() || contactIds.length === 0 || !stageId) {
       toast.error("Title, contact, and stage are required");
       return;
     }
     setSaving(true);
 
-    const payload = {
+    const basePayload = {
       title: title.trim(),
       value: parseFloat(value) || 0,
       currency,
-      contact_id: contactId,
       pipeline_id: pipelineId,
       stage_id: stageId,
       assigned_to: assignedTo || null,
@@ -168,7 +177,7 @@ export function DealForm({
     if (deal) {
       const { error } = await supabase
         .from("deals")
-        .update(payload)
+        .update({ ...basePayload, contact_id: contactIds[0] || null })
         .eq("id", deal.id);
       if (error) {
         toast.error("Failed to save deal");
@@ -185,18 +194,26 @@ export function DealForm({
         setSaving(false);
         return;
       }
+
+      const payloads = contactIds.map((cId) => ({
+        ...basePayload,
+        contact_id: cId,
+        user_id: user.id,
+        status: "open" as DealStatus,
+      }));
+
       const { error } = await supabase
         .from("deals")
-        .insert({ ...payload, user_id: user.id, status: "open" });
+        .insert(payloads);
       if (error) {
-        toast.error("Failed to create deal");
+        toast.error("Failed to create deal(s)");
         setSaving(false);
         return;
       }
     }
 
     setSaving(false);
-    toast.success(deal ? "Deal updated" : "Deal created");
+    toast.success(deal ? "Deal updated" : `Created ${contactIds.length} deal(s)`);
     onOpenChange(false);
     onSaved();
   }
@@ -235,6 +252,24 @@ export function DealForm({
     onSaved();
   }
 
+  const handleTagChange = (tagId: string) => {
+    setSelectedTagId(tagId);
+    if (tagId) {
+      const matchingIds = contactTags
+        .filter((ct) => ct.tag_id === tagId)
+        .map((ct) => ct.contact_id);
+      setContactIds(matchingIds);
+    } else {
+      setContactIds([]);
+    }
+  };
+
+  const filteredContacts = contacts.filter((c) => {
+    if (contactIds.includes(c.id)) return true;
+    if (!selectedTagId) return true;
+    return contactTags.some((ct) => ct.contact_id === c.id && ct.tag_id === selectedTagId);
+  });
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -247,7 +282,7 @@ export function DealForm({
               {deal ? "Edit Deal" : "New Deal"}
             </SheetTitle>
           </SheetHeader>
-
+ 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="grid gap-2">
               <Label className="text-foreground font-medium">Title</Label>
@@ -258,21 +293,76 @@ export function DealForm({
                 className="border-border bg-background text-foreground placeholder:text-muted-foreground"
               />
             </div>
-
+ 
             <div className="grid gap-2">
-              <Label className="text-foreground font-medium">Contact</Label>
+              <Label className="text-foreground font-medium">Filter Contacts by Tag</Label>
               <select
-                value={contactId}
-                onChange={(e) => setContactId(e.target.value)}
+                value={selectedTagId}
+                onChange={(e) => handleTagChange(e.target.value)}
                 className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground outline-none focus:border-[#03B3C3] focus:ring-1 focus:ring-[#03B3C3]"
               >
-                <option value="">Select a contact</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name || c.phone}
+                <option value="">All Tags (No Filter)</option>
+                {tags.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="grid gap-2">
+              {deal ? (
+                <>
+                  <Label className="text-foreground font-medium">Contact</Label>
+                  <select
+                    value={contactIds[0] || ""}
+                    onChange={(e) => setContactIds(e.target.value ? [e.target.value] : [])}
+                    className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-sm text-foreground outline-none focus:border-[#03B3C3] focus:ring-1 focus:ring-[#03B3C3]"
+                  >
+                    <option value="">Select a contact</option>
+                    {filteredContacts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name || c.phone}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <Label className="text-foreground font-medium">Contact(s)</Label>
+                  <div className="border border-border rounded-lg bg-background p-2.5 space-y-2 max-h-[180px] overflow-y-auto">
+                    {filteredContacts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground italic">No contacts found</p>
+                    ) : (
+                      filteredContacts.map((c) => {
+                        const isChecked = contactIds.includes(c.id);
+                        return (
+                          <label key={c.id} className="flex items-center gap-2 cursor-pointer text-sm text-foreground hover:bg-muted/50 p-1.5 rounded transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setContactIds((prev) => [...prev, c.id]);
+                                } else {
+                                  setContactIds((prev) => prev.filter((id) => id !== c.id));
+                                }
+                              }}
+                              className="rounded border-border text-[#03B3C3] focus:ring-[#03B3C3] h-4 w-4 bg-background"
+                            />
+                            <span>{c.name || c.phone}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  {contactIds.length > 0 && (
+                    <p className="text-xs text-muted-foreground font-medium">
+                      {contactIds.length} contact(s) selected.
+                    </p>
+                  )}
+                </>
+              )}
 
               {linkedConversation && (
                 <Link
@@ -427,10 +517,10 @@ export function DealForm({
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={saving || !title.trim() || !contactId || !stageId}
+                disabled={saving || !title.trim() || contactIds.length === 0 || !stageId}
                 className="flex-1"
               >
-                {saving ? "Saving..." : deal ? "Save Changes" : "Create Deal"}
+                {saving ? "Saving..." : deal ? "Save Changes" : `Create ${contactIds.length > 1 ? `${contactIds.length} Deals` : "Deal"}`}
               </Button>
             </div>
 
