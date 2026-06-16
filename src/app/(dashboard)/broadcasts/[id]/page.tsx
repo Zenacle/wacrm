@@ -632,7 +632,7 @@ export default function BroadcastDetailPage() {
           <DialogHeader>
             <DialogTitle className="text-white">Apply Tag</DialogTitle>
             <DialogDescription className="text-slate-400">
-              Apply tag <span className="font-semibold text-white">"{confirmTag?.name}"</span> to{' '}
+              Apply tag <span className="font-semibold text-white">&quot;{confirmTag?.name}&quot;</span> to{' '}
               <span className="font-semibold text-white">
                 {filteredRecipients.filter((r) => r.contact_id !== null).length}
               </span>{' '}

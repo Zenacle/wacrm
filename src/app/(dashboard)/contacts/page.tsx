@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
@@ -41,8 +41,6 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
-  Eye,
-  EyeOff,
   Tag as TagIcon,
   ChevronDown,
 } from 'lucide-react';
@@ -195,7 +193,6 @@ export default function ContactsPage() {
 
   // Reset page when tag filter changes
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(0);
   }, [selectedTagId]);
 
@@ -204,19 +201,16 @@ export default function ContactsPage() {
   // synchronously in the effect body, so the cascade the lint rule
   // warns about doesn't apply here.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTags();
   }, [fetchTags]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
 
   // Refetch only when selectedIds changes AND showSelectedOnly is true
   useEffect(() => {
     if (showSelectedOnly) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchContacts();
     }
   }, [selectedIds, showSelectedOnly, fetchContacts]);
@@ -373,7 +367,7 @@ export default function ContactsPage() {
         setSelectedIds(data.map((c) => c.id));
         toast.success(`Selected all ${data.length} contacts`);
       }
-    } catch (err: unknown) {
+    } catch {
       toast.error('Failed to select all contacts');
     } finally {
       setSelectingAll(false);
@@ -404,7 +398,7 @@ export default function ContactsPage() {
           <input
             type="checkbox"
             checked={selectedIds.includes(contact.id)}
-            onChange={(e) => {
+            onChange={() => {
               setSelectedIds((prev) =>
                 prev.includes(contact.id)
                   ? prev.filter((id) => id !== contact.id)

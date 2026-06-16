@@ -13,7 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { CheckCircle } from "lucide-react";
 import { ZenacleLogo } from "@/components/ui/zenacle-logo";
 
 export default function SignupPage() {

@@ -13,7 +13,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -224,6 +223,7 @@ function ConversationItem({
       {/* Avatar */}
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-cyan/10 text-sm font-semibold text-brand-cyan">
         {contact?.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={contact.avatar_url}
             alt={displayName}

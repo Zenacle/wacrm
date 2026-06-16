@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { getMediaUrl } from '@/lib/whatsapp/meta-api'
 import { normalizePhone, phonesMatch } from '@/lib/whatsapp/phone-utils'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
@@ -748,11 +748,13 @@ async function findOrCreateContact(
   const normalized = normalizePhone(phone)
 
   // 1. Try exact match first
-  let { data: contacts, error: contactsError } = await supabaseAdmin()
+  const { data: exactContacts, error: contactsError } = await supabaseAdmin()
     .from('contacts')
     .select('*')
     .eq('user_id', userId)
     .eq('phone', normalized)
+
+  let contacts = exactContacts
 
   if (contactsError) {
     console.error('Error fetching contacts exact match:', contactsError)
