@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -163,7 +162,7 @@ export function ConversationList({
       </div>
 
       {/* Conversation Items */}
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-cyan border-t-transparent" />
@@ -184,7 +183,7 @@ export function ConversationList({
             ))}
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }

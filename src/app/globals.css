@@ -165,6 +165,8 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 25%, transparent) transparent;
   }
   body {
     @apply bg-background text-foreground;
@@ -172,5 +174,25 @@
   }
   html {
     font-family: "Century Gothic", "Poppins", "Inter", sans-serif;
+  }
+
+  /* Custom scrollbar styling for Webkit browsers */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted-foreground) 25%, transparent);
+    border-radius: 9999px;
+    transition: background 0.15s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
   }
 }
