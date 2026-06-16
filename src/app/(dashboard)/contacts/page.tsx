@@ -39,16 +39,12 @@ import {
   Trash2,
   Loader2,
   Users,
-  ChevronLeft,
-  ChevronRight,
   Tag as TagIcon,
   ChevronDown,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
-
-const PAGE_SIZE = 25;
 
 interface ContactWithTags extends Contact {
   tags?: Tag[];
@@ -60,7 +56,6 @@ export default function ContactsPage() {
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
 
@@ -103,15 +98,11 @@ export default function ContactsPage() {
   const fetchContacts = useCallback(async () => {
     setLoading(true);
 
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
     let query = supabase
       .from('contacts')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
-      .range(from, to);
+      .order('id', { ascending: false });
 
     if (search.trim()) {
       const term = `%${search.trim()}%`;
@@ -189,12 +180,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, tagsMap, showSelectedOnly, selectedTagId]);
-
-  // Reset page when tag filter changes
-  useEffect(() => {
-    setPage(0);
-  }, [selectedTagId]);
+  }, [supabase, search, tagsMap, showSelectedOnly, selectedTagId]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -374,18 +360,9 @@ export default function ContactsPage() {
     }
   }
 
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
-
   const handleSearchChange = (val: string) => {
     setSearch(val);
-    setPage(0);
   };
-
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-  const hasNext = page < totalPages - 1;
-  const hasPrev = page > 0;
 
   const renderContactRow = (contact: ContactWithTags) => (
     <TableRow
@@ -611,7 +588,6 @@ export default function ContactsPage() {
               size="xs"
               onClick={() => {
                 setShowSelectedOnly(!showSelectedOnly);
-                setPage(0);
               }}
               className={cn(
                 "border-border hover:bg-accent hover:text-foreground transition-all duration-200",
@@ -796,38 +772,7 @@ export default function ContactsPage() {
         </Table>
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, totalCount)} of{' '}
-            {totalCount}
-          </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasPrev}
-              onClick={() => handlePageChange(page - 1)}
-              className="border-border text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 rounded-lg"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground px-2">
-              Page {page + 1} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              disabled={!hasNext}
-              onClick={() => handlePageChange(page + 1)}
-              className="border-border text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 rounded-lg"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+
 
       {/* Contact Form Dialog */}
       <ContactForm
