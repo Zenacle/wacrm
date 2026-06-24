@@ -288,6 +288,14 @@ export async function POST(request: Request) {
 
       for (const variant of variants) {
         try {
+
+          console.log('TEMPLATE PAYLOAD', {
+            to: variant,
+            templateName: 'registration_confirmation',
+            language: 'en',
+            params: []
+          });
+
           const result = await sendTemplateMessage({
             phoneNumberId: config.phone_number_id,
             accessToken,
