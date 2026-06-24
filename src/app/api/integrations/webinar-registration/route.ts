@@ -75,12 +75,12 @@ export async function POST(request: Request) {
     }
 
     const token = authHeader.substring(7)
-    const integrationSecret = process.env.INTEGRATION_SECRET
+    const integrationSecret = process.env.CRM_INTEGRATION_SECRET
 
     if (!integrationSecret || token !== integrationSecret) {
-      console.error('Invalid or unconfigured INTEGRATION_SECRET')
+      console.error('Invalid or unconfigured CRM_INTEGRATION_SECRET')
       return NextResponse.json(
-        { error: 'Unauthorized: Invalid integration secret' },
+        { error: 'Unauthorized: Invalid CRM integration secret' },
         { status: 401 }
       )
     }

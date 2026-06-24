@@ -33,7 +33,7 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 describe('Webinar Registration API Route', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    process.env.INTEGRATION_SECRET = 'test-secret'
+    process.env.CRM_INTEGRATION_SECRET = 'test-secret'
   })
 
   // 1. Authorization checks
@@ -58,7 +58,7 @@ describe('Webinar Registration API Route', () => {
     expect(res.status).toBe(401)
   })
 
-  it('returns 401 if token does not match INTEGRATION_SECRET', async () => {
+  it('returns 401 if token does not match CRM_INTEGRATION_SECRET', async () => {
     const req = new Request('http://localhost:3000/api/integrations/webinar-registration', {
       method: 'POST',
       headers: { Authorization: 'Bearer wrong-secret' },
