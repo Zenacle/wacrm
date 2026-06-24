@@ -109,6 +109,27 @@ export async function POST(request: Request) {
       )
     }
 
+    // Check if registration_id already exists in webinar_sync_log
+    const { data: existingLog, error: logSearchError } = await supabaseAdmin()
+      .from('webinar_sync_log')
+      .select('registration_id')
+      .eq('registration_id', registration_id)
+      .limit(1)
+      .maybeSingle()
+
+    if (logSearchError) {
+      console.error('Error checking webinar_sync_log:', logSearchError)
+    }
+
+    if (existingLog) {
+      console.log(`Registration ID ${registration_id} already exists in webinar_sync_log. Skipping processing.`)
+      return NextResponse.json({
+        success: true,
+        duplicate: true,
+        whatsapp_sent: false
+      })
+    }
+
     // Get the first user/profile in the CRM system to associate the new contact with
     const { data: profile, error: profileError } = await supabaseAdmin()
       .from('profiles')
@@ -206,45 +227,11 @@ export async function POST(request: Request) {
       contact = newContact
     }
 
-    // 6. Idempotency Check using contact notes
-    const noteText = `Webinar Registration ID: ${registration_id}`
-    const { data: existingNotes, error: notesSearchError } = await supabaseAdmin()
-      .from('contact_notes')
-      .select('id, contact_id')
-      .eq('note_text', noteText)
-      .limit(1)
-
-    if (notesSearchError) {
-      console.error('Error checking for registration idempotency note:', notesSearchError)
-    }
-
-    if (existingNotes && existingNotes.length > 0) {
-      console.log(`Registration ID ${registration_id} already processed. Skipping WhatsApp message.`)
-      return NextResponse.json({
-        success: true,
-        contact_id: contact.id,
-        whatsapp_sent: false,
-      })
-    }
-
-    // 7. Add tags
+    // 6. Add tags
     // A. Webinar Registered
     await addTagToContact(userId, contact.id, 'Webinar Registered', '#3b82f6')
 
-    // B. Workshop Batch tag
-    if (workshop_batch) {
-      await addTagToContact(userId, contact.id, workshop_batch, '#8b5cf6')
-    }
-
-    // C. Payment type tag
-    const isPaid = typeof payment_status === 'string'
-      ? ['paid', 'completed', 'success'].includes(payment_status.toLowerCase())
-      : !!payment_status
-    const paymentTagName = isPaid ? 'Paid' : 'Free Access'
-    const paymentTagColor = isPaid ? '#10b981' : '#6b7280'
-    await addTagToContact(userId, contact.id, paymentTagName, paymentTagColor)
-
-    // 8. Find or create conversation
+    // 7. Find or create conversation
     let { data: conversation, error: convError } = await supabaseAdmin()
       .from('conversations')
       .select('*')
@@ -272,119 +259,140 @@ export async function POST(request: Request) {
       conversation = newConv
     }
 
-    // 9. Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabaseAdmin()
-      .from('whatsapp_config')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
+    let whatsapp_sent = false
+    let errorMessage: string | null = null
 
-    if (configError || !config) {
-      console.error('WhatsApp config error:', configError)
-      return NextResponse.json(
-        { error: 'WhatsApp not configured in CRM for user' },
-        { status: 400 }
-      )
-    }
+    try {
+      // 8. Fetch and decrypt WhatsApp config
+      const { data: config, error: configError } = await supabaseAdmin()
+        .from('whatsapp_config')
+        .select('*')
+        .eq('user_id', userId)
+        .single()
 
-    const accessToken = decrypt(config.access_token)
-    const sanitizedPhone = sanitizePhoneForMeta(contact.phone)
-
-    if (!isValidE164(sanitizedPhone)) {
-      console.error('Invalid phone number format:', sanitizedPhone)
-      return NextResponse.json(
-        { error: 'Invalid phone number format' },
-        { status: 400 }
-      )
-    }
-
-    const variants = phoneVariants(sanitizedPhone)
-    let waMessageId = ''
-    let workingPhone = sanitizedPhone
-    let lastError: unknown = null
-
-    for (const variant of variants) {
-      try {
-        const result = await sendTemplateMessage({
-          phoneNumberId: config.phone_number_id,
-          accessToken,
-          to: variant,
-          templateName: 'registration_confirmation',
-          language: 'en',
-          params: [full_name],
-        })
-        waMessageId = result.messageId
-        workingPhone = variant
-        lastError = null
-        break
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        if (!isRecipientNotAllowedError(message)) {
-          throw err
-        }
-        lastError = err
-        console.warn(`[integration] variant "${variant}" rejected by Meta, trying next…`)
+      if (configError || !config) {
+        throw new Error(configError?.message || 'WhatsApp not configured in CRM for user')
       }
-    }
 
-    if (lastError) {
-      throw lastError
-    }
+      const accessToken = decrypt(config.access_token)
+      const sanitizedPhone = sanitizePhoneForMeta(contact.phone)
 
-    // If workingPhone was corrected
-    if (workingPhone !== sanitizedPhone) {
+      if (!isValidE164(sanitizedPhone)) {
+        throw new Error('Invalid phone number format')
+      }
+
+      const variants = phoneVariants(sanitizedPhone)
+      let waMessageId = ''
+      let workingPhone = sanitizedPhone
+      let lastError: unknown = null
+
+      for (const variant of variants) {
+        try {
+          const result = await sendTemplateMessage({
+            phoneNumberId: config.phone_number_id,
+            accessToken,
+            to: variant,
+            templateName: 'registration_confirmation',
+            language: 'en',
+            params: [full_name],
+          })
+          waMessageId = result.messageId
+          workingPhone = variant
+          lastError = null
+          break
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          if (!isRecipientNotAllowedError(message)) {
+            throw err
+          }
+          lastError = err
+          console.warn(`[integration] variant "${variant}" rejected by Meta, trying next…`)
+        }
+      }
+
+      if (lastError) {
+        throw lastError
+      }
+
+      // If workingPhone was corrected
+      if (workingPhone !== sanitizedPhone) {
+        await supabaseAdmin()
+          .from('contacts')
+          .update({ phone: workingPhone, updated_at: new Date().toISOString() })
+          .eq('id', contact.id)
+      }
+
+      // Insert message record into internal DB
+      const { data: messageRecord, error: msgError } = await supabaseAdmin()
+        .from('messages')
+        .insert({
+          conversation_id: conversation.id,
+          sender_type: 'agent',
+          content_type: 'template',
+          content_text: null,
+          template_name: 'registration_confirmation',
+          message_id: waMessageId,
+          status: 'sent',
+        })
+        .select()
+        .single()
+
+      if (msgError) {
+        console.error('Error inserting webhook-sent message:', msgError)
+      }
+
+      // Update conversation details
       await supabaseAdmin()
-        .from('contacts')
-        .update({ phone: workingPhone, updated_at: new Date().toISOString() })
-        .eq('id', contact.id)
+        .from('conversations')
+        .update({
+          last_message_text: '[Template: registration_confirmation]',
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', conversation.id)
+
+      whatsapp_sent = true
+    } catch (err) {
+      console.error('WhatsApp template sending failed:', err)
+      errorMessage = err instanceof Error ? err.message : String(err)
     }
 
-    // Insert message record into internal DB
-    const { data: messageRecord, error: msgError } = await supabaseAdmin()
-      .from('messages')
+    // 9. Record sync log
+    const { error: syncLogError } = await supabaseAdmin()
+      .from('webinar_sync_log')
       .insert({
-        conversation_id: conversation.id,
-        sender_type: 'agent',
-        content_type: 'template',
-        content_text: null,
-        template_name: 'registration_confirmation',
-        message_id: waMessageId,
-        status: 'sent',
-      })
-      .select()
-      .single()
-
-    if (msgError) {
-      console.error('Error inserting webhook-sent message:', msgError)
-    }
-
-    // Update conversation details
-    await supabaseAdmin()
-      .from('conversations')
-      .update({
-        last_message_text: '[Template: registration_confirmation]',
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', conversation.id)
-
-    // Save registration ID note to mark this registration as processed (for idempotency)
-    const { error: noteInsertError } = await supabaseAdmin()
-      .from('contact_notes')
-      .insert({
+        registration_id,
         contact_id: contact.id,
-        user_id: userId,
-        note_text: noteText,
+        full_name,
+        email,
+        phone,
+        workshop_batch,
+        payment_status,
+        whatsapp_sent,
+        processed_at: new Date().toISOString(),
+        error_message: errorMessage,
       })
 
-    if (noteInsertError) {
-      console.error('Error inserting registration idempotency note:', noteInsertError)
+    if (syncLogError) {
+      if (syncLogError.code === '23505') {
+        console.log(`Registration ID ${registration_id} already exists in webinar_sync_log (detected via insert constraint). Skipping processing duplicate.`)
+        return NextResponse.json({
+          success: true,
+          duplicate: true,
+          whatsapp_sent: false,
+        })
+      }
+      console.error('Error inserting webinar_sync_log:', syncLogError)
+      return NextResponse.json(
+        { error: `Failed to record sync log: ${syncLogError.message}` },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({
       success: true,
       contact_id: contact.id,
-      whatsapp_sent: true,
+      whatsapp_sent,
     })
   } catch (error) {
     console.error('Error in CRM webinar integration:', error)

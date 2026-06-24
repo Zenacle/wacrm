@@ -90,7 +90,7 @@ describe('Webinar Registration API Route', () => {
   it('creates contact, links tags, sends WhatsApp template and returns success', async () => {
     const contactState = { data: [] as any }
     const tagState = { data: null as any }
-    const noteState = { data: [] as any }
+    const logState = { data: null as any }
     const convState = { data: null as any }
 
     mockFrom.mockImplementation((table: string) => {
@@ -111,10 +111,10 @@ describe('Webinar Registration API Route', () => {
         })
         return chain
       }
-      if (table === 'contact_notes') {
-        const chain = createChain(noteState)
+      if (table === 'webinar_sync_log') {
+        const chain = createChain(logState)
         chain.insert = vi.fn().mockImplementation((val) => {
-          noteState.data = { id: 'note-uuid', ...val }
+          logState.data = { id: 'log-uuid', ...val }
           return chain
         })
         return chain
@@ -159,6 +159,22 @@ describe('Webinar Registration API Route', () => {
         params: ['John Doe'],
       })
     )
+
+    // Verify webinar_sync_log record was inserted correctly
+    expect(logState.data).toEqual(
+      expect.objectContaining({
+        registration_id: 'reg-123',
+        contact_id: 'new-contact-uuid',
+        full_name: 'John Doe',
+        email: 'john@example.com',
+        phone: '+91 96295 66619',
+        workshop_batch: 'July 05 2026',
+        payment_status: 'paid',
+        whatsapp_sent: true,
+        error_message: null,
+      })
+    )
+    expect(logState.data.processed_at).toBeDefined()
   })
 
   // 4. Contact updating logic
@@ -168,7 +184,7 @@ describe('Webinar Registration API Route', () => {
       data: [{ id: 'existing-contact-uuid', phone: '919629566619', name: null, email: null }] as any
     }
     const tagState = { data: { id: 'tag-uuid', name: 'Webinar Registered' } }
-    const noteState = { data: [] as any }
+    const logState = { data: null as any }
     const convState = { data: { id: 'conv-uuid' } }
 
     mockFrom.mockImplementation((table: string) => {
@@ -184,10 +200,10 @@ describe('Webinar Registration API Route', () => {
         return chain
       }
       if (table === 'tags') return createChain(tagState)
-      if (table === 'contact_notes') {
-        const chain = createChain(noteState)
+      if (table === 'webinar_sync_log') {
+        const chain = createChain(logState)
         chain.insert = vi.fn().mockImplementation((val) => {
-          noteState.data = { id: 'note-uuid', ...val }
+          logState.data = { id: 'log-uuid', ...val }
           return chain
         })
         return chain
@@ -219,16 +235,151 @@ describe('Webinar Registration API Route', () => {
   })
 
   // 5. Idempotency logic
-  it('skips sending WhatsApp message if registration_id has already been processed', async () => {
-    const contactState = {
-      data: [{ id: 'existing-contact-uuid', phone: '919629566619', name: 'John Doe', email: 'john@example.com' }] as any
-    }
-    const noteState = { data: [{ id: 'note-uuid', contact_id: 'existing-contact-uuid' }] }
+  it('skips processing and returns duplicate: true if registration_id already exists in webinar_sync_log', async () => {
+    const logState = { data: { registration_id: 'reg-123' } }
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return createChain({ data: { user_id: 'test-user-id' } })
-      if (table === 'contacts') return createChain(contactState)
-      if (table === 'contact_notes') return createChain(noteState)
+      if (table === 'webinar_sync_log') return createChain(logState)
+      return createChain({ data: null })
+    })
+
+    const req = new Request('http://localhost:3000/api/integrations/webinar-registration', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-secret' },
+      body: JSON.stringify({
+        registration_id: 'reg-123',
+        full_name: 'John Doe',
+        phone: '+91 96295 66619',
+        email: 'john@example.com',
+        workshop_batch: 'July 05 2026',
+        payment_status: 'paid',
+      }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toEqual({
+      success: true,
+      duplicate: true,
+      whatsapp_sent: false,
+    })
+
+    // Verify WhatsApp template message was NOT sent
+    expect(sendTemplateMessage).not.toHaveBeenCalled()
+  })
+
+  it('handles unique constraint violation (code 23505) during webinar_sync_log insert gracefully', async () => {
+    const contactState = { data: [] as any }
+    const tagState = { data: null as any }
+    const convState = { data: null as any }
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') return createChain({ data: { user_id: 'test-user-id' } })
+      if (table === 'contacts') {
+        const chain = createChain(contactState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          contactState.data = { id: 'new-contact-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'tags') {
+        const chain = createChain(tagState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          tagState.data = { id: 'tag-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'webinar_sync_log') {
+        const selectChain = createChain({ data: null })
+        selectChain.insert = vi.fn().mockImplementation(() => {
+          return createChain({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } })
+        })
+        return selectChain
+      }
+      if (table === 'conversations') {
+        const chain = createChain(convState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          convState.data = { id: 'conv-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'whatsapp_config') return createChain({ data: { phone_number_id: 'test-phone-id', access_token: 'test-token', status: 'connected' } })
+      return createChain({ data: null })
+    })
+
+    const req = new Request('http://localhost:3000/api/integrations/webinar-registration', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-secret' },
+      body: JSON.stringify({
+        registration_id: 'reg-123',
+        full_name: 'John Doe',
+        phone: '+91 96295 66619',
+        email: 'john@example.com',
+        workshop_batch: 'July 05 2026',
+        payment_status: 'paid',
+      }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toEqual({
+      success: true,
+      duplicate: true,
+      whatsapp_sent: false,
+    })
+  })
+
+  // 6. WhatsApp send failure handling
+  it('handles WhatsApp send failure by still creating webinar_sync_log with whatsapp_sent = false and error_message', async () => {
+    const contactState = { data: [] as any }
+    const tagState = { data: null as any }
+    const logState = { data: null as any }
+    const convState = { data: null as any }
+
+    // Mock sendTemplateMessage to fail
+    vi.mocked(sendTemplateMessage).mockRejectedValueOnce(new Error('Meta API error'))
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') return createChain({ data: { user_id: 'test-user-id' } })
+      if (table === 'contacts') {
+        const chain = createChain(contactState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          contactState.data = { id: 'new-contact-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'tags') {
+        const chain = createChain(tagState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          tagState.data = { id: 'tag-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'webinar_sync_log') {
+        const chain = createChain(logState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          logState.data = { id: 'log-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'conversations') {
+        const chain = createChain(convState)
+        chain.insert = vi.fn().mockImplementation((val) => {
+          convState.data = { id: 'conv-uuid', ...val }
+          return chain
+        })
+        return chain
+      }
+      if (table === 'whatsapp_config') return createChain({ data: { phone_number_id: 'test-phone-id', access_token: 'test-token', status: 'connected' } })
       return createChain({ data: null })
     })
 
@@ -249,10 +400,23 @@ describe('Webinar Registration API Route', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.success).toBe(true)
-    expect(json.contact_id).toBe('existing-contact-uuid')
+    expect(json.contact_id).toBe('new-contact-uuid')
     expect(json.whatsapp_sent).toBe(false)
 
-    // Verify WhatsApp template message was NOT sent
-    expect(sendTemplateMessage).not.toHaveBeenCalled()
+    // Verify webinar_sync_log record was inserted correctly with error_message
+    expect(logState.data).toEqual(
+      expect.objectContaining({
+        registration_id: 'reg-123',
+        contact_id: 'new-contact-uuid',
+        full_name: 'John Doe',
+        email: 'john@example.com',
+        phone: '+91 96295 66619',
+        workshop_batch: 'July 05 2026',
+        payment_status: 'paid',
+        whatsapp_sent: false,
+        error_message: 'Meta API error',
+      })
+    )
+    expect(logState.data.processed_at).toBeDefined()
   })
 })
