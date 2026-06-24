@@ -45,43 +45,87 @@ const uploadWithProgress = (
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${bucket}/${path}`;
-    console.log('Upload started', { file: file.name, size: file.size, url });
-    
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${bucket}/${encodeURIComponent(path)}`;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    console.log('Upload started', { name: file.name, size: file.size, type: file.type, url });
+
     xhr.open('POST', url, true);
-    
-    // Set headers
-    xhr.setRequestHeader('Authorization', `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`);
-    xhr.setRequestHeader('apikey', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '');
-    xhr.setRequestHeader('x-upsert', 'false');
-    
+
+    // Supabase Storage REST API requires Content-Type matching the file MIME type.
+    // Without this the server accepts the bytes but hangs before sending a response,
+    // which prevents onload from ever firing.
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('Authorization', `Bearer ${anonKey}`);
+    xhr.setRequestHeader('apikey', anonKey);
+    // Allow re-upload of the same path (avoids duplicate-path 409 hangs)
+    xhr.setRequestHeader('x-upsert', 'true');
+
+    // 30-second response timeout — guards against the server accepting bytes but
+    // never sending a response (the exact symptom being debugged here).
+    xhr.timeout = 30_000;
+
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percent = Math.round((event.loaded / event.total) * 100);
+        console.log('Upload progress', percent + '%', `(${event.loaded}/${event.total} bytes)`);
         onProgress(percent);
       }
     };
-    
+
+    xhr.upload.onload = () => {
+      console.log('xhr.upload.onload — bytes fully sent to server, awaiting response…');
+    };
+
+    xhr.upload.onerror = (e) => {
+      console.error('xhr.upload.onerror — error sending bytes to server', e);
+    };
+
+    xhr.upload.onabort = () => {
+      console.warn('xhr.upload.onabort — upload was aborted before bytes finished sending');
+    };
+
     xhr.onload = () => {
-      console.log('XHR onload — status:', xhr.status, '— response:', xhr.responseText.slice(0, 500));
+      console.log(
+        'XHR onload',
+        '| status:', xhr.status,
+        '| statusText:', xhr.statusText,
+        '| response:', xhr.responseText.slice(0, 500)
+      );
       if (xhr.status >= 200 && xhr.status < 300) {
-        console.log('Upload complete');
+        console.log('Upload complete ✓');
         resolve();
       } else {
+        let errMsg = `Upload failed: HTTP ${xhr.status} ${xhr.statusText}`;
         try {
           const res = JSON.parse(xhr.responseText);
-          reject(new Error(res.message || `Upload failed: ${xhr.statusText}`));
-        } catch {
-          reject(new Error(`Upload failed with status ${xhr.status}`));
-        }
+          errMsg = res.message || res.error || errMsg;
+        } catch { /* not JSON */ }
+        console.error('XHR onload — upload rejected:', errMsg, '| full response:', xhr.responseText);
+        reject(new Error(errMsg));
       }
     };
-    
+
     xhr.onerror = () => {
-      console.error('XHR onerror — network error during upload');
-      reject(new Error('Network error during upload'));
+      console.error(
+        'XHR onerror — network/CORS failure',
+        '| status:', xhr.status,
+        '| statusText:', xhr.statusText,
+        '| response:', xhr.responseText.slice(0, 500)
+      );
+      reject(new Error(`Network error during upload (status: ${xhr.status})`));
     };
-    
+
+    xhr.onabort = () => {
+      console.warn('XHR onabort — request was aborted', '| status:', xhr.status);
+      reject(new Error('Upload was aborted'));
+    };
+
+    xhr.ontimeout = () => {
+      console.error('XHR ontimeout — server accepted bytes but never responded within 30s');
+      reject(new Error('Upload timed out — server did not respond'));
+    };
+
+    console.log('Sending XHR…');
     xhr.send(file);
   });
 };
