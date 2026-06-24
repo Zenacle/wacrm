@@ -46,6 +46,7 @@ const uploadWithProgress = (
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${bucket}/${path}`;
+    console.log('Upload started', { file: file.name, size: file.size, url });
     
     xhr.open('POST', url, true);
     
@@ -62,7 +63,9 @@ const uploadWithProgress = (
     };
     
     xhr.onload = () => {
+      console.log('XHR onload — status:', xhr.status, '— response:', xhr.responseText.slice(0, 500));
       if (xhr.status >= 200 && xhr.status < 300) {
+        console.log('Upload complete');
         resolve();
       } else {
         try {
@@ -75,6 +78,7 @@ const uploadWithProgress = (
     };
     
     xhr.onerror = () => {
+      console.error('XHR onerror — network error during upload');
       reject(new Error('Network error during upload'));
     };
     
@@ -519,10 +523,12 @@ export function MessageThread({
         const { data: { publicUrl } } = supabase.storage
           .from('chat-media')
           .getPublicUrl(path);
+        console.log('Public URL', publicUrl);
 
         toast.success(`${file.name} uploaded`, { id: toastId });
 
         // Send to CRM WhatsApp API
+        console.log('Calling send API', { conversation_id: conversation.id, message_type: contentType, media_url: publicUrl });
         const res = await fetch("/api/whatsapp/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -533,6 +539,7 @@ export function MessageThread({
             content_text: file.name,
           }),
         });
+        console.log('Send API response', res.status);
 
         const payload = await res.json().catch(() => ({}));
 
@@ -549,7 +556,7 @@ export function MessageThread({
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error('Failed to send media:', msg);
+        console.error('Failed to send media — caught error:', err);
         toast.error(`Failed to send: ${msg}`, { id: toastId });
         onUpdateMessage(tempId, {
           status: "failed",
