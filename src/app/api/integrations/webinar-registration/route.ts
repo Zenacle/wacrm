@@ -294,7 +294,7 @@ export async function POST(request: Request) {
             to: variant,
             templateName: 'registration_confirmation',
             language: 'en',
-            params: [],
+            params: [full_name],
           })
           waMessageId = result.messageId
           workingPhone = variant
