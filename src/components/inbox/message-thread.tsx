@@ -85,14 +85,9 @@ const uploadWithProgress = (
     };
 
     xhr.onload = () => {
-      console.log(
-        'XHR onload',
-        '| status:', xhr.status,
-        '| statusText:', xhr.statusText,
-        '| response:', xhr.responseText.slice(0, 500)
-      );
+      console.log("UPLOAD STATUS:", xhr.status);
+      console.log("UPLOAD RESPONSE:", xhr.responseText);
       if (xhr.status >= 200 && xhr.status < 300) {
-        console.log('Upload complete ✓');
         resolve();
       } else {
         let errMsg = `Upload failed: HTTP ${xhr.status} ${xhr.statusText}`;
@@ -100,18 +95,12 @@ const uploadWithProgress = (
           const res = JSON.parse(xhr.responseText);
           errMsg = res.message || res.error || errMsg;
         } catch { /* not JSON */ }
-        console.error('XHR onload — upload rejected:', errMsg, '| full response:', xhr.responseText);
         reject(new Error(errMsg));
       }
     };
 
     xhr.onerror = () => {
-      console.error(
-        'XHR onerror — network/CORS failure',
-        '| status:', xhr.status,
-        '| statusText:', xhr.statusText,
-        '| response:', xhr.responseText.slice(0, 500)
-      );
+      console.error("XHR NETWORK ERROR");
       reject(new Error(`Network error during upload (status: ${xhr.status})`));
     };
 
@@ -598,9 +587,9 @@ export function MessageThread({
           media_url: publicUrl,
           upload_progress: undefined,
         });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.error('Failed to send media — caught error:', err);
+      } catch (error) {
+        console.error("MEDIA SEND ERROR:", error);
+        const msg = error instanceof Error ? error.message : 'Unknown error';
         toast.error(`Failed to send: ${msg}`, { id: toastId });
         onUpdateMessage(tempId, {
           status: "failed",
