@@ -252,6 +252,60 @@ export async function sendReactionMessage(
   return { messageId: data.messages[0].id }
 }
 
+export interface SendMediaMessageArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  mediaUrl: string
+  mediaType: 'image' | 'video' | 'audio' | 'document'
+  filename?: string
+  contextMessageId?: string
+}
+
+/**
+ * Send an image, video, audio, or document media message via a public URL link.
+ */
+export async function sendMediaMessage(
+  args: SendMediaMessageArgs
+): Promise<MetaSendResult> {
+  const { phoneNumberId, accessToken, to, mediaUrl, mediaType, filename, contextMessageId } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  
+  const mediaObj: Record<string, unknown> = {
+    link: mediaUrl,
+  }
+  
+  if (mediaType === 'document' && filename) {
+    mediaObj.filename = filename;
+  }
+
+  const body: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: mediaType,
+    [mediaType]: mediaObj,
+  }
+  
+  if (contextMessageId) {
+    body.context = { message_id: contextMessageId }
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
 // ============================================================
 // Media
 // ============================================================

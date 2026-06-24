@@ -253,6 +253,19 @@ export function MessageBubble({
           <ReplyQuote authorLabel={reply.authorLabel} preview={reply.preview} />
         )}
         <MessageContent message={message} />
+        {message.status === "sending" && message.upload_progress !== undefined && (
+          <div className="mt-2 w-full min-w-[120px]">
+            <div className="h-1 w-full rounded-full bg-white/20">
+              <div
+                className="h-1 rounded-full bg-white transition-all duration-300"
+                style={{ width: `${message.upload_progress}%` }}
+              />
+            </div>
+            <span className="mt-1 block text-[9px] text-right text-white/70">
+              Uploading: {message.upload_progress}%
+            </span>
+          </div>
+        )}
         <div
           className={cn(
             "mt-1 flex items-center gap-1",

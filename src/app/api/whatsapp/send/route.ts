@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import { sendTextMessage, sendTemplateMessage, sendMediaMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import {
   sanitizePhoneForMeta,
@@ -65,6 +65,13 @@ export async function POST(request: Request) {
     if (message_type === 'template' && !template_name) {
       return NextResponse.json(
         { error: 'template_name is required for template messages' },
+        { status: 400 }
+      )
+    }
+
+    if (['image', 'video', 'audio', 'document'].includes(message_type) && !media_url) {
+      return NextResponse.json(
+        { error: 'media_url is required for media messages' },
         { status: 400 }
       )
     }
@@ -184,6 +191,17 @@ export async function POST(request: Request) {
           to: phone,
           templateName: template_name,
           params: template_params || [],
+          contextMessageId,
+        })
+        return result.messageId
+      } else if (['image', 'video', 'audio', 'document'].includes(message_type)) {
+        const result = await sendMediaMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: phone,
+          mediaUrl: media_url,
+          mediaType: message_type as 'image' | 'video' | 'audio' | 'document',
+          filename: message_type === 'document' ? (body.filename || content_text || 'Document') : undefined,
           contextMessageId,
         })
         return result.messageId

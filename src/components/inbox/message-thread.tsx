@@ -37,6 +37,51 @@ import { TemplatePicker } from "./template-picker";
 import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
 
+const uploadWithProgress = (
+  file: File,
+  bucket: string,
+  path: string,
+  onProgress: (percent: number) => void
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${bucket}/${path}`;
+    
+    xhr.open('POST', url, true);
+    
+    // Set headers
+    xhr.setRequestHeader('Authorization', `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`);
+    xhr.setRequestHeader('apikey', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '');
+    xhr.setRequestHeader('x-upsert', 'false');
+    
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        onProgress(percent);
+      }
+    };
+    
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          reject(new Error(res.message || `Upload failed: ${xhr.statusText}`));
+        } catch {
+          reject(new Error(`Upload failed with status ${xhr.status}`));
+        }
+      }
+    };
+    
+    xhr.onerror = () => {
+      reject(new Error('Network error during upload'));
+    };
+    
+    xhr.send(file);
+  });
+};
+
 interface ReplyDraft {
   id: string;
   authorLabel: string;
@@ -402,6 +447,119 @@ export function MessageThread({
       }
     },
     [conversation, onNewMessage, onUpdateMessage]
+  );
+
+  const handleSendMedia = useCallback(
+    async (file: File) => {
+      if (!conversation || !user?.id) return;
+
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const mime = file.type;
+
+      // Type checking and classification
+      let contentType: 'image' | 'video' | 'audio' | 'document' = 'document';
+      if (['jpg', 'jpeg', 'png', 'webp'].includes(ext) || mime.startsWith('image/')) {
+        contentType = 'image';
+      } else if (['mp4', 'mov'].includes(ext) || mime.startsWith('video/')) {
+        contentType = 'video';
+      } else if (['mp3', 'wav', 'ogg'].includes(ext) || mime.startsWith('audio/')) {
+        contentType = 'audio';
+      }
+
+      // Max size: 15 MB
+      const MAX_SIZE = 15 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        toast.error('File too large', {
+          description: 'Maximum file size is 15 MB.',
+        });
+        return;
+      }
+
+      const allowedExts = [
+        'jpg', 'jpeg', 'png', 'webp',
+        'mp4', 'mov',
+        'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx',
+        'mp3', 'wav', 'ogg',
+        'zip'
+      ];
+      if (!allowedExts.includes(ext)) {
+        toast.error('Unsupported file type', {
+          description: 'Supported files: Images, Videos, Audio, ZIPs, and Office documents.',
+        });
+        return;
+      }
+
+      const tempId = `temp-${Date.now()}`;
+      const localUrl = URL.createObjectURL(file);
+
+      // Optimistic update
+      const optimisticMsg: Message = {
+        id: tempId,
+        conversation_id: conversation.id,
+        sender_type: "agent",
+        content_type: contentType,
+        content_text: file.name,
+        media_url: localUrl,
+        status: "sending",
+        upload_progress: 0,
+        created_at: new Date().toISOString(),
+      };
+      onNewMessage(optimisticMsg);
+
+      const path = `${user.id}/${Date.now()}-${file.name}`;
+      const toastId = toast.loading(`Uploading ${file.name}...`);
+
+      try {
+        await uploadWithProgress(file, 'chat-media', path, (percent) => {
+          onUpdateMessage(tempId, { upload_progress: percent });
+        });
+
+        // Resolve public URL
+        const supabase = createClient();
+        const { data: { publicUrl } } = supabase.storage
+          .from('chat-media')
+          .getPublicUrl(path);
+
+        toast.success(`${file.name} uploaded`, { id: toastId });
+
+        // Send to CRM WhatsApp API
+        const res = await fetch("/api/whatsapp/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            message_type: contentType,
+            media_url: publicUrl,
+            content_text: file.name,
+          }),
+        });
+
+        const payload = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const reason = payload?.error || `HTTP ${res.status}`;
+          throw new Error(reason);
+        }
+
+        // Complete sent message
+        onUpdateMessage(tempId, {
+          status: "sent",
+          media_url: publicUrl,
+          upload_progress: undefined,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        console.error('Failed to send media:', msg);
+        toast.error(`Failed to send: ${msg}`, { id: toastId });
+        onUpdateMessage(tempId, {
+          status: "failed",
+          upload_progress: undefined,
+        });
+      } finally {
+        URL.revokeObjectURL(localUrl);
+      }
+    },
+    [conversation, user?.id, onNewMessage, onUpdateMessage]
   );
 
   const handleStatusChange = useCallback(
@@ -831,6 +989,7 @@ export function MessageThread({
         conversationId={conversation.id}
         sessionExpired={sessionInfo.expired}
         onSend={handleSend}
+        onSendMedia={handleSendMedia}
         onOpenTemplates={handleOpenTemplates}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}

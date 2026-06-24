@@ -91,6 +91,7 @@ export interface Message {
   status: MessageStatus;
   created_at: string;
   reply_to_message_id?: string;
+  upload_progress?: number;
 }
 
 export type ReactionActor = 'customer' | 'agent';
