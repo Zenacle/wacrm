@@ -218,6 +218,18 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
 
+        // Ignore echo/outbound messages where the sender is the business itself
+        if (
+          message.from &&
+          value.metadata?.display_phone_number &&
+          phonesMatch(message.from, value.metadata.display_phone_number)
+        ) {
+          console.log(
+            `[webhook] Ignoring echo/outbound message ${message.id} sent by the business (${value.metadata.display_phone_number})`
+          )
+          continue
+        }
+
         await processMessage(
           message,
           contact,

@@ -268,7 +268,7 @@ export async function POST(request: Request) {
     //   media_url, template_name, message_id, status, created_at
     const { data: messageRecord, error: msgError } = await supabase
       .from('messages')
-      .insert({
+      .upsert({
         conversation_id,
         sender_type: 'agent',
         content_type: message_type,
@@ -278,6 +278,8 @@ export async function POST(request: Request) {
         message_id: waMessageId,
         status: 'sent',
         reply_to_message_id: reply_to_message_id || null,
+      }, {
+        onConflict: 'message_id'
       })
       .select()
       .single()
