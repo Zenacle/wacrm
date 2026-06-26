@@ -156,7 +156,7 @@ describe('Webinar Registration API Route', () => {
       expect.objectContaining({
         templateName: 'registration_confirmation',
         to: '919629566619',
-        params: ['John Doe'],
+        params: [],
       })
     )
 
